@@ -63,7 +63,8 @@ class VTSClient:
         except:
             print("⚠️ Не удалось получить список выражений")
     
-    async def send_parameters(self, face_params, hand_params):
+    async def send_parameters(self, param_list):
+        """param_list — список словарей [{"id": "FaceAngleX", "value": 0.0}, ...]"""
         if not self.connected:
             return
         payload = {
@@ -73,12 +74,11 @@ class VTSClient:
             "messageType": "InjectParameterDataRequest",
             "data": {
                 "faceFound": True,
-                "parameterValues": face_params + hand_params
+                "parameterValues": param_list
             }
         }
         try:
             await self.websocket.send(json.dumps(payload))
-            # Читаем ответ с таймаутом, чтобы не накапливались
             try:
                 await asyncio.wait_for(self.websocket.recv(), timeout=0.01)
             except asyncio.TimeoutError:
@@ -86,7 +86,7 @@ class VTSClient:
         except Exception as e:
             print(f"⚠️ Ошибка отправки параметров: {e}")
             self.connected = False
-    
+
     async def toggle_expression(self, gesture_name, active):
         if gesture_name not in self.expressions:
             print(f"⚠️ Выражение '{gesture_name}' не найдено")

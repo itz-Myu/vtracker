@@ -29,6 +29,18 @@ CALIB_FILE = "calibration.json"
 CALIBRATION_FRAMES = 30
 HAND_CALIBRATION_FRAMES = 30
 
+FACE_AXIS_INVERT = {
+    "FaceAngleX": True,
+    "FaceAngleY": False,
+    "FaceAngleZ": False,
+}
+
+FACE_AXIS_MAP = {
+    "FaceAngleX": "yaw",
+    "FaceAngleY": "pitch",
+    "FaceAngleZ": "roll",
+}
+
 # Сглаживание
 FACE_SMOOTHING = 0.2
 HAND_SMOOTHING = 0.05

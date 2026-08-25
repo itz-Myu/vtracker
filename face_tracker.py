@@ -77,10 +77,21 @@ class FaceTracker:
             self.smooth_yaw = utils.smooth_value(self.smooth_yaw, yaw_cal, config.FACE_SMOOTHING)
             self.smooth_roll = utils.smooth_value(self.smooth_roll, roll_cal, config.FACE_SMOOTHING)
             
-            # Ограничения
-            face_params["FaceAngleX"] = utils.clamp(self.smooth_pitch, -config.FACE_ANGLE_X_LIMIT, config.FACE_ANGLE_X_LIMIT)
-            face_params["FaceAngleY"] = utils.clamp(self.smooth_roll, -config.FACE_ANGLE_Y_LIMIT, config.FACE_ANGLE_Y_LIMIT)
-            face_params["FaceAngleZ"] = utils.clamp(self.smooth_yaw, -config.FACE_ANGLE_Z_LIMIT, config.FACE_ANGLE_Z_LIMIT)
+            # Применяем маппинг осей
+            angle_values = {
+                "pitch": self.smooth_pitch,
+                "yaw": self.smooth_yaw,
+                "roll": self.smooth_roll,
+            }
+            for param, source in config.FACE_AXIS_MAP.items():
+                if param == "FaceAngleX" or param == "FaceAngleY":
+                    limit = config.FACE_ANGLE_X_LIMIT
+                else:
+                    limit = config.FACE_ANGLE_Z_LIMIT
+                val = angle_values[source]
+                if config.FACE_AXIS_INVERT.get(param, False):
+                    val = -val
+                face_params[param] = utils.clamp(val, -limit, limit)
             
             # --- Blendshapes ---
             if result.face_blendshapes:
