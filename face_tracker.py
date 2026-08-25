@@ -14,6 +14,7 @@ class FaceTracker:
         self.smooth_pitch = 0.0
         self.smooth_yaw = 0.0
         self.smooth_roll = 0.0
+        self.calib_frames = []
         
     def _initialize(self):
         base = python.BaseOptions(model_asset_path=self.model_path)
@@ -58,19 +59,29 @@ class FaceTracker:
             else:
                 pitch_deg = yaw_deg = roll_deg = 0.0
             
-            # --- Калибровка ---
-            offset = calibration.get_face_offset() if calibration.face_ready else None
-            if offset is not None:
-                pitch_cal = pitch_deg - offset["FaceAngleX"]
-                yaw_cal = yaw_deg - offset["FaceAngleZ"]
-                roll_cal = roll_deg - offset["FaceAngleY"]
-                # Инвертируем оси
-                pitch_cal = -pitch_cal
-                roll_cal = -roll_cal
-            else:
+            # --- КАЛИБРОВКА (с учётом маппинга) ---
+            if not calibration.face_ready:
+                self.calib_frames.append((pitch_deg, yaw_deg, roll_deg))
+                if len(self.calib_frames) >= config.CALIBRATION_FRAMES:
+                    avg_pitch = sum(f[0] for f in self.calib_frames) / len(self.calib_frames)
+                    avg_yaw = sum(f[1] for f in self.calib_frames) / len(self.calib_frames)
+                    avg_roll = sum(f[2] for f in self.calib_frames) / len(self.calib_frames)
+                    # Сохраняем смещения в соответствии с маппингом:
+                    # FaceAngleX = yaw, FaceAngleY = pitch, FaceAngleZ = roll
+                    calibration.set_face_offset(avg_yaw, avg_pitch, avg_roll)
+                    print("🎯 Калибровка лица завершена!")
+                    self.calib_frames = []
+                # пока калибровка не готова — используем сырые углы
                 pitch_cal = pitch_deg
                 yaw_cal = yaw_deg
                 roll_cal = roll_deg
+            else:
+                offset = calibration.get_face_offset()
+                # Вычитаем смещения из соответствующих углов
+                pitch_cal = pitch_deg - offset["FaceAngleY"]  # Y хранит pitch
+                yaw_cal = yaw_deg - offset["FaceAngleX"]      # X хранит yaw
+                roll_cal = roll_deg - offset["FaceAngleZ"]    # Z хранит roll
+                # ИНВЕРСИЯ БУДЕТ ПРИМЕНЕНА ПОЗЖЕ через FACE_AXIS_INVERT
             
             # Сглаживание
             self.smooth_pitch = utils.smooth_value(self.smooth_pitch, pitch_cal, config.FACE_SMOOTHING)

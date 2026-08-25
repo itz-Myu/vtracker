@@ -11,14 +11,16 @@ class Calibration:
             "hand_right": {"AngleX": 0.0, "AngleZ": 0.0},
         }
         self.face_ready = False
-        self.hand_ready = False
+        self.hand_left_ready = False
+        self.hand_right_ready = False
         
     def load(self):
         if os.path.exists(self.filepath):
             with open(self.filepath, 'r') as f:
                 self.data = json.load(f)
                 self.face_ready = True
-                self.hand_ready = True
+                self.hand_left_ready = True
+                self.hand_right_ready = True
                 print("📂 Калибровка загружена из файла")
                 return True
         return False
@@ -44,5 +46,8 @@ class Calibration:
     def set_hand_offset(self, side, angle_x, angle_z):
         self.data[f"hand_{side}"]["AngleX"] = angle_x
         self.data[f"hand_{side}"]["AngleZ"] = angle_z
-        self.hand_ready = True
+        if side == "left":
+            self.hand_left_ready = True
+        else:
+            self.hand_right_ready = True
         self.save()

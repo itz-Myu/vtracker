@@ -12,14 +12,17 @@ class HandTracker:
         self.model_path = model_path
         self.landmarker = None
         self._initialize()
-        # Данные для сглаживания углов рук
+        # Сглаживание для левой руки
         self.smooth_angle_x_left = 0.0
         self.smooth_angle_z_left = 0.0
+        # Сглаживание для правой руки
         self.smooth_angle_x_right = 0.0
         self.smooth_angle_z_right = 0.0
-        # Переменные для хранения состояния жестов
+        # Калибровочные кадры
+        self.calib_hand_frames_left = []
+        self.calib_hand_frames_right = []
         self.last_gesture = None
-        
+
     def _initialize(self):
         base = python.BaseOptions(model_asset_path=self.model_path)
         options = vision.HandLandmarkerOptions(
@@ -31,11 +34,8 @@ class HandTracker:
             min_tracking_confidence=0.5,
         )
         self.landmarker = vision.HandLandmarker.create_from_options(options)
-    
+
     def process(self, frame_rgb, frame_counter, calibration):
-        """
-        Обрабатывает кадр, возвращает словарь параметров рук, распознанный жест и список landmarks.
-        """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
         result = self.landmarker.detect_for_video(mp_image, frame_counter)
 
@@ -45,11 +45,11 @@ class HandTracker:
         finger_open_right = None
         landmarks_left = None
         landmarks_right = None
-        landmarks_list = []  # <--- инициализация здесь
+        landmarks_list = []
 
         if result and result.hand_landmarks:
             for idx, hand_landmarks in enumerate(result.hand_landmarks):
-                landmarks_list.append(hand_landmarks)  # <--- добавляем все руки
+                landmarks_list.append(hand_landmarks)
                 handedness = result.handedness[idx][0].category_name
                 is_left = (handedness == "Left")
 
@@ -77,26 +77,38 @@ class HandTracker:
                 finger_open[0] = 1.0 - finger_open[0]
                 hand_open = sum(finger_open) / 5.0
 
-                # Углы (только левая)
-                if is_left:
-                    index_base = hand_landmarks[5]
-                    pinky_base = hand_landmarks[17]
-                    dx = index_base.x - pinky_base.x
-                    dy = index_base.y - pinky_base.y
-                    dist = math.sqrt(dx*dx + dy*dy)
-                    if dist < 0.001:
-                        dist = 0.001
-                    dx_norm = dx / dist
-                    dy_norm = dy / dist
-                    angle_x_raw = math.asin(max(-1.0, min(1.0, dx_norm))) * 180.0 / math.pi
-                    angle_x_raw = utils.clamp(angle_x_raw, -config.HAND_ANGLE_LIMIT, config.HAND_ANGLE_LIMIT)
-                    angle_z_raw = 0.0
+                # --- УГЛЫ И КАЛИБРОВКА ---
+                # Вычисляем сырые углы (для левой и правой одинаково, но позже зеркалим)
+                index_base = hand_landmarks[5]
+                pinky_base = hand_landmarks[17]
+                dx = index_base.x - pinky_base.x
+                dy = index_base.y - pinky_base.y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist < 0.001:
+                    dist = 0.001
+                dx_norm = dx / dist
+                dy_norm = dy / dist
+                angle_x_raw = math.asin(max(-1.0, min(1.0, dx_norm))) * 180.0 / math.pi
+                angle_x_raw = utils.clamp(angle_x_raw, -config.HAND_ANGLE_LIMIT, config.HAND_ANGLE_LIMIT)
+                angle_z_raw = 0.0  # пока не используем
 
-                    if calibration.hand_ready:
+                if is_left:
+                    # --- КАЛИБРОВКА ЛЕВОЙ РУКИ ---
+                    if not calibration.hand_left_ready:
+                        self.calib_hand_frames_left.append((angle_x_raw, angle_z_raw))
+                        if len(self.calib_hand_frames_left) >= config.HAND_CALIBRATION_FRAMES:
+                            avg_x = sum(f[0] for f in self.calib_hand_frames_left) / len(self.calib_hand_frames_left)
+                            avg_z = sum(f[1] for f in self.calib_hand_frames_left) / len(self.calib_hand_frames_left)
+                            calibration.set_hand_offset("left", avg_x, avg_z)
+                            print("🎯 Калибровка левой руки завершена!")
+                            self.calib_hand_frames_left = []
+                        hand_params["HandLeftAngleX"] = 0.0
+                        hand_params["HandLeftAngleZ"] = 0.0
+                    else:
                         offset = calibration.get_hand_offset("left")
                         angle_x_cal = angle_x_raw - offset["AngleX"]
                         angle_z_cal = angle_z_raw - offset["AngleZ"]
-                        angle_x_cal = -angle_x_cal
+                        angle_x_cal = -angle_x_cal  # инвертируем X для левой
                         self.smooth_angle_x_left = utils.smooth_value(self.smooth_angle_x_left, angle_x_cal, config.HAND_SMOOTHING)
                         self.smooth_angle_z_left = utils.smooth_value(self.smooth_angle_z_left, angle_z_cal, config.HAND_SMOOTHING)
                         self.smooth_angle_x_left = utils.dead_zone(self.smooth_angle_x_left, config.DEAD_ZONE)
@@ -106,12 +118,35 @@ class HandTracker:
 
                     finger_open_left = finger_open
                     landmarks_left = hand_landmarks
+
                 else:
-                    # можно добавить углы для правой руки позже
+                    # --- КАЛИБРОВКА ПРАВОЙ РУКИ ---
+                    if not calibration.hand_right_ready:
+                        self.calib_hand_frames_right.append((angle_x_raw, angle_z_raw))
+                        if len(self.calib_hand_frames_right) >= config.HAND_CALIBRATION_FRAMES:
+                            avg_x = sum(f[0] for f in self.calib_hand_frames_right) / len(self.calib_hand_frames_right)
+                            avg_z = sum(f[1] for f in self.calib_hand_frames_right) / len(self.calib_hand_frames_right)
+                            calibration.set_hand_offset("right", avg_x, avg_z)
+                            print("🎯 Калибровка правой руки завершена!")
+                            self.calib_hand_frames_right = []
+                        hand_params["HandRightAngleX"] = 0.0
+                        hand_params["HandRightAngleZ"] = 0.0
+                    else:
+                        offset = calibration.get_hand_offset("right")
+                        angle_x_cal = angle_x_raw - offset["AngleX"]
+                        angle_z_cal = angle_z_raw - offset["AngleZ"]
+                        angle_x_cal = angle_x_cal  # для правой не инвертируем (или инвертируем, если нужно)
+                        self.smooth_angle_x_right = utils.smooth_value(self.smooth_angle_x_right, angle_x_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_z_right = utils.smooth_value(self.smooth_angle_z_right, angle_z_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_x_right = utils.dead_zone(self.smooth_angle_x_right, config.DEAD_ZONE)
+                        self.smooth_angle_z_right = utils.dead_zone(self.smooth_angle_z_right, config.DEAD_ZONE)
+                        hand_params["HandRightAngleX"] = self.smooth_angle_x_right
+                        hand_params["HandRightAngleZ"] = self.smooth_angle_z_right
+
                     finger_open_right = finger_open
                     landmarks_right = hand_landmarks
 
-                # Общие параметры
+                # Общие параметры (позиция, открытие, пальцы)
                 if is_left:
                     hand_params["HandLeftFound"] = 1.0
                     hand_params["HandLeftPositionX"] = pos_x
@@ -142,7 +177,6 @@ class HandTracker:
             else:
                 gesture = recognize_gesture(finger_open_left, landmarks_left)
         elif finger_open_right is not None and landmarks_right is not None:
-            # Распознаём жест на правой руке (передаём как левую)
             gesture = recognize_gesture(finger_open_right, landmarks_right)
 
         # Сбрасываем флаги, если руки не найдены
@@ -152,7 +186,7 @@ class HandTracker:
             hand_params["HandRightFound"] = 0.0
 
         return hand_params, gesture, landmarks_list
-    
+
     def close(self):
         if self.landmarker:
             self.landmarker.close()

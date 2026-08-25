@@ -31,9 +31,9 @@ HAND_CALIBRATION_FRAMES = 30
 
 # Настройки головы
 FACE_AXIS_INVERT = {
-    "FaceAngleX": True,
+    "FaceAngleX": False,
     "FaceAngleY": False,
-    "FaceAngleZ": False,
+    "FaceAngleZ": True,
 }
 
 FACE_AXIS_MAP = {
@@ -43,12 +43,12 @@ FACE_AXIS_MAP = {
 }
 
 # --- Настройки жестов ---
-GESTURE_THRESHOLD_EXTENDED = 0.65   # порог для разогнутых пальцев (0..1)
+GESTURE_THRESHOLD_EXTENDED = 0.6    # порог для разогнутых пальцев (0..1)
 GESTURE_THRESHOLD_FOLDED = 0.3      # порог для согнутых пальцев (0..1)
-GESTURE_DISTANCE_THRESHOLD = 0.05   # порог расстояния для жеста OK (в нормализованных координатах)
+GESTURE_DISTANCE_THRESHOLD = 0.08   # порог расстояния для жеста OK (в нормализованных координатах)
 
 # Индивидуальные пороги
-GESTURE_THUMB_EXTENDED = 0.55
+GESTURE_THUMB_EXTENDED = 0.5
 GESTURE_THUMB_FOLDED = 0.3
 
 GESTURE_ALIAS = {
