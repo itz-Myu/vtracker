@@ -22,13 +22,14 @@ HAND_MODEL_PATH = "tasks/hand_landmarker.task"
 CAMERA_WIDTH = 1024
 CAMERA_HEIGHT = 576
 CAMERA_FPS = 30
-CAMERA_FORMAT = 'MJPG'  # или 'YUYV'
+CAMERA_FORMAT = 'MJPG'  # 'YUYV'
 
 # Калибровка
 CALIB_FILE = "calibration.json"
 CALIBRATION_FRAMES = 30
 HAND_CALIBRATION_FRAMES = 30
 
+# Настройки головы
 FACE_AXIS_INVERT = {
     "FaceAngleX": True,
     "FaceAngleY": False,
@@ -39,6 +40,31 @@ FACE_AXIS_MAP = {
     "FaceAngleX": "yaw",
     "FaceAngleY": "pitch",
     "FaceAngleZ": "roll",
+}
+
+# --- Настройки жестов ---
+GESTURE_THRESHOLD_EXTENDED = 0.65   # порог для разогнутых пальцев (0..1)
+GESTURE_THRESHOLD_FOLDED = 0.3      # порог для согнутых пальцев (0..1)
+GESTURE_DISTANCE_THRESHOLD = 0.05   # порог расстояния для жеста OK (в нормализованных координатах)
+
+# Индивидуальные пороги
+GESTURE_THUMB_EXTENDED = 0.55
+GESTURE_THUMB_FOLDED = 0.3
+
+GESTURE_ALIAS = {
+    "peace": "Peace",
+    "ok": "OK",
+    "thumbs_up": "ThumbsUp",
+    "middle_finger": "Middle",
+    "point_up": "Point",
+    "pinky_up": "Pinky",
+    "open_palm": "Open",
+    "horns": "Horns",
+    "three_fingers": "Three",
+    "four_fingers": "Four",
+    "fist": "Fist",
+    "fingers_together": "Together",
+    "heart": "Heart",
 }
 
 # Сглаживание

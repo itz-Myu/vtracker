@@ -56,11 +56,19 @@ async def main():
             # --- Руки ---
             hand_params, gesture, hand_landmarks_list = hand_tracker.process(frame_rgb, frame_counter, calib)
             
-            # --- Жесты -> выражения ---
+            # --- Жесты -> выражения (с алиасами) ---
             if gesture and gesture != last_gesture:
+                # Деактивируем предыдущий жест
                 if last_gesture:
-                    await vts.toggle_expression(last_gesture, False)
-                await vts.toggle_expression(gesture, True)
+                    last_alias = config.GESTURE_ALIAS.get(last_gesture)
+                    if last_alias:
+                        await vts.toggle_expression(last_alias, False)
+                # Активируем новый жест
+                alias = config.GESTURE_ALIAS.get(gesture)
+                if alias:
+                    await vts.toggle_expression(alias, True)
+                else:
+                    print(f"⚠️ Нет алиаса для жеста '{gesture}'")
                 last_gesture = gesture
             
             # --- Отправка параметров ---

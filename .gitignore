@@ -3,5 +3,7 @@ __pycache__/
 tasks/
 secrets/
 calibration.json
+get.py
+listen.py
 get_toket.py
 icon128_base64.txt
