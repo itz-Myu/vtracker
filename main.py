@@ -39,6 +39,10 @@ async def main():
     last_active_alias = None
     last_gesture_left_alias = None
     last_gesture_right_alias = None
+    gesture_left_buffer = None
+    gesture_right_buffer = None
+    gesture_left_counter = 0
+    gesture_right_counter = 0
     frame_counter = 0
     last_time = time.time()
     fps = 0
@@ -51,6 +55,16 @@ async def main():
             
             frame_counter += 1
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # --- Проверка подключения к VTS ---
+            if not vts.connected:
+                print("🔄 VTS отключён, попытка переподключения...")
+                try:
+                    await vts.connect()
+                except Exception as e:
+                    print(f"❌ Не удалось переподключиться: {e}")
+                    await asyncio.sleep(1)
+                    continue
             
             # --- Лицо ---
             face_params, face_landmarks = face_tracker.process(frame_rgb, frame_counter, calib)
@@ -58,93 +72,123 @@ async def main():
             # --- Руки ---
             hand_params, gesture_left, gesture_right, hand_landmarks_list = hand_tracker.process(frame_rgb, frame_counter, calib)
 
-            # --- Жесты -> выражения (с отладкой) ---
+            # --- Жесты -> выражения (со стабилизацией) ---
+            DEBOUNCE_FRAMES = config.DEBOUNCE_FRAMES
+
+            # Буфер для левой руки
+            if gesture_left is not None:
+                if gesture_left == gesture_left_buffer:
+                    gesture_left_counter += 1
+                else:
+                    gesture_left_buffer = gesture_left
+                    gesture_left_counter = 1
+            else:
+                if gesture_left_buffer is not None:
+                    gesture_left_counter -= 1
+                    if gesture_left_counter <= 0:
+                        gesture_left_buffer = None
+                        gesture_left_counter = 0
+                else:
+                    gesture_left_counter = 0
+
+            # Буфер для правой руки
+            if gesture_right is not None:
+                if gesture_right == gesture_right_buffer:
+                    gesture_right_counter += 1
+                else:
+                    gesture_right_buffer = gesture_right
+                    gesture_right_counter = 1
+            else:
+                if gesture_right_buffer is not None:
+                    gesture_right_counter -= 1
+                    if gesture_right_counter <= 0:
+                        gesture_right_buffer = None
+                        gesture_right_counter = 0
+                else:
+                    gesture_right_counter = 0
+
+            # Стабильные жесты (только если держатся достаточно долго)
+            stable_left = gesture_left_buffer if gesture_left_counter >= DEBOUNCE_FRAMES else None
+            stable_right = gesture_right_buffer if gesture_right_counter >= DEBOUNCE_FRAMES else None
+
+            # --- Определяем, что сейчас активно ---
             def get_alias(gesture, hand):
                 if hand == "left":
                     return config.GESTURE_ALIAS_LEFT.get(gesture, config.GESTURE_ALIAS.get(gesture))
                 else:
                     return config.GESTURE_ALIAS_RIGHT.get(gesture, config.GESTURE_ALIAS.get(gesture))
 
-            # Функция для безопасной деактивации алиаса
-            async def safe_deactivate(alias, reason=""):
+            async def safe_toggle(alias, active, reason=""):
                 if alias:
-                    print(f"🔽 Деактивация '{alias}' ({reason})")
-                    await vts.toggle_expression(alias, False)
+                    if active:
+                        print(f"🔼 Активация '{alias}' ({reason})")
+                    else:
+                        print(f"🔽 Деактивация '{alias}' ({reason})")
+                    await vts.toggle_expression(alias, active)
 
-            # Функция для безопасной активации алиаса
-            async def safe_activate(alias, reason=""):
-                if alias:
-                    print(f"🔼 Активация '{alias}' ({reason})")
-                    await vts.toggle_expression(alias, True)
-
-            # --- 1. Проверка двухручного жеста ---
+            # --- Проверка двухручного жеста (только если оба стабильны) ---
             two_hand_alias = None
-            if gesture_left == gesture_right and gesture_left in config.GESTURE_TWO_HAND_ALIAS:
-                two_hand_alias = config.GESTURE_TWO_HAND_ALIAS[gesture_left]
+            if stable_left is not None and stable_right is not None and stable_left == stable_right:
+                two_hand_alias = config.GESTURE_TWO_HAND_ALIAS.get(stable_left)
 
+            # --- Проверка комбинации (если оба стабильны и не двухручные) ---
             combo_alias = None
-            if gesture_left is not None and gesture_right is not None and not two_hand_alias:
-                combo = (gesture_left, gesture_right)
+            if stable_left is not None and stable_right is not None and not two_hand_alias:
+                combo = (stable_left, stable_right)
                 combo_alias = config.GESTURE_COMBINATIONS.get(combo)
 
-            # Определяем, что сейчас активно: двухручный, комбинация или отдельные
-            active_alias = two_hand_alias or combo_alias
+            # --- Определяем активный алиас (приоритет: двухручный > комбинация) ---
+            new_active_alias = two_hand_alias or combo_alias
 
-            if active_alias:
-                # Если активный алиас изменился или его не было
-                if active_alias != last_active_alias:
-                    # Деактивируем всё предыдущее
+            # --- Обработка смены активного алиаса ---
+            if new_active_alias:
+                if new_active_alias != last_active_alias:
+                    # Деактивируем предыдущий активный
                     if last_active_alias:
-                        await safe_deactivate(last_active_alias, "смена")
+                        await safe_toggle(last_active_alias, False, "смена активного")
                     # Деактивируем отдельные жесты
-                    if last_gesture_left:
-                        last_alias = get_alias(last_gesture_left, "left")
-                        await safe_deactivate(last_alias, "отдельный левый")
-                        last_gesture_left = None
-                    if last_gesture_right:
-                        last_alias = get_alias(last_gesture_right, "right")
-                        await safe_deactivate(last_alias, "отдельный правый")
-                        last_gesture_right = None
+                    if last_gesture_left_alias:
+                        await safe_toggle(last_gesture_left_alias, False, "отдельный левый (активный)")
+                        last_gesture_left_alias = None
+                    if last_gesture_right_alias:
+                        await safe_toggle(last_gesture_right_alias, False, "отдельный правый (активный)")
+                        last_gesture_right_alias = None
                     # Активируем новый
-                    await safe_activate(active_alias, "активация")
-                    last_active_alias = active_alias
-                # Если активный алиас не изменился, ничего не делаем
+                    await safe_toggle(new_active_alias, True, "активация")
+                    last_active_alias = new_active_alias
+                # Если активный не изменился, ничего не делаем
             else:
-                # Нет активного алиаса (двухручного или комбинации) — обрабатываем отдельные жесты
+                # Нет активного — обрабатываем отдельные жесты
                 if last_active_alias:
-                    await safe_deactivate(last_active_alias, "нет активного")
+                    await safe_toggle(last_active_alias, False, "нет активного")
                     last_active_alias = None
 
-                # Левый жест
-                if gesture_left is not None:
-                    alias = get_alias(gesture_left, "left")
+                # --- Левый жест ---
+                if stable_left is not None:
+                    alias = get_alias(stable_left, "left")
                     if alias and alias != last_gesture_left_alias:
                         if last_gesture_left_alias:
-                            await safe_deactivate(last_gesture_left_alias, "смена левого")
-                        await safe_activate(alias, "левый")
+                            await safe_toggle(last_gesture_left_alias, False, "смена левого")
+                        await safe_toggle(alias, True, "левый")
                         last_gesture_left_alias = alias
                 else:
                     if last_gesture_left_alias:
-                        await safe_deactivate(last_gesture_left_alias, "левый пропал")
+                        await safe_toggle(last_gesture_left_alias, False, "левый пропал")
                         last_gesture_left_alias = None
 
-                # Правый жест
-                if gesture_right is not None:
-                    alias = get_alias(gesture_right, "right")
+                # --- Правый жест ---
+                if stable_right is not None:
+                    alias = get_alias(stable_right, "right")
                     if alias and alias != last_gesture_right_alias:
                         if last_gesture_right_alias:
-                            await safe_deactivate(last_gesture_right_alias, "смена правого")
-                        await safe_activate(alias, "правый")
+                            await safe_toggle(last_gesture_right_alias, False, "смена правого")
+                        await safe_toggle(alias, True, "правый")
                         last_gesture_right_alias = alias
                 else:
                     if last_gesture_right_alias:
-                        await safe_deactivate(last_gesture_right_alias, "правый пропал")
+                        await safe_toggle(last_gesture_right_alias, False, "правый пропал")
                         last_gesture_right_alias = None
 
-            # Обновляем старые переменные для совместимости (если нужно)
-            last_gesture_left = gesture_left
-            last_gesture_right = gesture_right
-            
             # --- Отправка параметров ---
             param_list = []
             for key, value in face_params.items():

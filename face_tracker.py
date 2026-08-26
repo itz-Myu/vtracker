@@ -17,7 +17,7 @@ class FaceTracker:
         self.calib_frames = []
         
     def _initialize(self):
-        base = python.BaseOptions(model_asset_path=self.model_path)
+        base = python.BaseOptions(model_asset_path=self.model_path, delegate=python.BaseOptions.Delegate.GPU)
         options = vision.FaceLandmarkerOptions(
             base_options=base,
             running_mode=vision.RunningMode.VIDEO,

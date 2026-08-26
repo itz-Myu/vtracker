@@ -25,7 +25,7 @@ class HandTracker:
         self.last_gesture_right = None
 
     def _initialize(self):
-        base = python.BaseOptions(model_asset_path=self.model_path)
+        base = python.BaseOptions(model_asset_path=self.model_path, delegate=python.BaseOptions.Delegate.GPU)
         options = vision.HandLandmarkerOptions(
             base_options=base,
             running_mode=vision.RunningMode.VIDEO,
