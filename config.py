@@ -14,7 +14,7 @@ PLUGIN_TOKEN = read_secret("token.txt")
 PLUGIN_ICON = read_secret("icon_base64.txt")
 
 CAMERA_ID = 0
-WINDOW_NAME = "VT Tracker (MediaPipe)"
+WINDOW_NAME = "VTracker (MediaPipe)"
 FACE_MODEL_PATH = "tasks/face_landmarker.task"
 HAND_MODEL_PATH = "tasks/hand_landmarker.task"
 
@@ -47,24 +47,47 @@ GESTURE_THRESHOLD_EXTENDED = 0.6    # порог для разогнутых п�
 GESTURE_THRESHOLD_FOLDED = 0.3      # порог для согнутых пальцев (0..1)
 GESTURE_DISTANCE_THRESHOLD = 0.08   # порог расстояния для жеста OK (в нормализованных координатах)
 
-# Индивидуальные пороги
+## Индивидуальные пороги
 GESTURE_THUMB_EXTENDED = 0.5
 GESTURE_THUMB_FOLDED = 0.3
 
+## Общие алиасы
 GESTURE_ALIAS = {
+    "fist": "Fist",
+    "open_palm": "Open",
     "peace": "Peace",
     "ok": "OK",
     "thumbs_up": "ThumbsUp",
     "middle_finger": "Middle",
     "point_up": "Point",
     "pinky_up": "Pinky",
-    "open_palm": "Open",
     "horns": "Horns",
     "three_fingers": "Three",
     "four_fingers": "Four",
-    "fist": "Fist",
-    "fingers_together": "Together",
-    "heart": "Heart",
+}
+
+## Алиасы для левой руки
+GESTURE_ALIAS_LEFT = {
+    "horns": "handL",
+    "pinky_up": "dark"
+}
+
+## Алиасы для правой руки
+GESTURE_ALIAS_RIGHT = {
+    "horns": "handR",
+    "pinky_up": "mask"
+}
+
+## Алиасы для двухручных жестов
+GESTURE_TWO_HAND_ALIAS = {
+    "heart": "st2",
+    "fingers_together": "love",
+}
+
+## Комбинации жестов
+GESTURE_COMBINATIONS = {
+    ("peace", "peace"): "zRev",
+    ("ok", "middle_finger"): "kira",
 }
 
 # Сглаживание

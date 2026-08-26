@@ -21,7 +21,8 @@ class HandTracker:
         # Калибровочные кадры
         self.calib_hand_frames_left = []
         self.calib_hand_frames_right = []
-        self.last_gesture = None
+        self.last_gesture_left = None
+        self.last_gesture_right = None
 
     def _initialize(self):
         base = python.BaseOptions(model_asset_path=self.model_path)
@@ -40,7 +41,8 @@ class HandTracker:
         result = self.landmarker.detect_for_video(mp_image, frame_counter)
 
         hand_params = {}
-        gesture = None
+        gesture_left = None
+        gesture_right = None
         finger_open_left = None
         finger_open_right = None
         landmarks_left = None
@@ -78,7 +80,6 @@ class HandTracker:
                 hand_open = sum(finger_open) / 5.0
 
                 # --- УГЛЫ И КАЛИБРОВКА ---
-                # Вычисляем сырые углы (для левой и правой одинаково, но позже зеркалим)
                 index_base = hand_landmarks[5]
                 pinky_base = hand_landmarks[17]
                 dx = index_base.x - pinky_base.x
@@ -135,7 +136,7 @@ class HandTracker:
                         offset = calibration.get_hand_offset("right")
                         angle_x_cal = angle_x_raw - offset["AngleX"]
                         angle_z_cal = angle_z_raw - offset["AngleZ"]
-                        angle_x_cal = angle_x_cal  # для правой не инвертируем (или инвертируем, если нужно)
+                        angle_x_cal = angle_x_cal  # для правой не инвертируем
                         self.smooth_angle_x_right = utils.smooth_value(self.smooth_angle_x_right, angle_x_cal, config.HAND_SMOOTHING)
                         self.smooth_angle_z_right = utils.smooth_value(self.smooth_angle_z_right, angle_z_cal, config.HAND_SMOOTHING)
                         self.smooth_angle_x_right = utils.dead_zone(self.smooth_angle_x_right, config.DEAD_ZONE)
@@ -170,14 +171,22 @@ class HandTracker:
                     hand_params["HandRightFinger_4_Ring"] = finger_open[3]
                     hand_params["HandRightFinger_5_Pinky"] = finger_open[4]
 
-        # Распознаём жест (поддерживаем обе руки)
-        if finger_open_left is not None and landmarks_left is not None:
+        # --- РАСПОЗНАВАНИЕ ЖЕСТОВ ---
+        # Проверяем двухручные жесты (если есть обе руки)
+        two_hand_gesture = None
+        if finger_open_left is not None and landmarks_left is not None and finger_open_right is not None and landmarks_right is not None:
+            two_hand_gesture = recognize_gesture(finger_open_left, landmarks_left, finger_open_right, landmarks_right)
+
+        if two_hand_gesture:
+            # двухручный жест имеет приоритет
+            gesture_left = two_hand_gesture
+            gesture_right = two_hand_gesture
+        else:
+            # распознаём каждую руку отдельно
+            if finger_open_left is not None and landmarks_left is not None:
+                gesture_left = recognize_gesture(finger_open_left, landmarks_left)
             if finger_open_right is not None and landmarks_right is not None:
-                gesture = recognize_gesture(finger_open_left, landmarks_left, finger_open_right, landmarks_right)
-            else:
-                gesture = recognize_gesture(finger_open_left, landmarks_left)
-        elif finger_open_right is not None and landmarks_right is not None:
-            gesture = recognize_gesture(finger_open_right, landmarks_right)
+                gesture_right = recognize_gesture(finger_open_right, landmarks_right)
 
         # Сбрасываем флаги, если руки не найдены
         if "HandLeftFound" not in hand_params:
@@ -185,7 +194,7 @@ class HandTracker:
         if "HandRightFound" not in hand_params:
             hand_params["HandRightFound"] = 0.0
 
-        return hand_params, gesture, landmarks_list
+        return hand_params, gesture_left, gesture_right, landmarks_list
 
     def close(self):
         if self.landmarker:

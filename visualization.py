@@ -28,7 +28,7 @@ def draw_hand_landmarks(frame, landmarks, connections, color=(0, 255, 0), radius
         if idx1 < len(points) and idx2 < len(points):
             cv2.line(frame, points[idx1], points[idx2], (0, 255, 0), 1)
 
-def draw_info(frame, face_params, hand_params, fps, gesture=None):
+def draw_info(frame, face_params, hand_params, fps, gesture_left=None, gesture_right=None):
     info_text = [
         f"FPS: {fps:.1f}",
         f"Face: {'Found' if face_params.get('faceFound', False) else 'Not found'}",
@@ -40,8 +40,10 @@ def draw_info(frame, face_params, hand_params, fps, gesture=None):
         f"HandL: {'Found' if hand_params.get('HandLeftFound', 0) else '...'} Open: {hand_params.get('HandLeftOpen', 0):.2f}",
         f"HandR: {'Found' if hand_params.get('HandRightFound', 0) else '...'} Open: {hand_params.get('HandRightOpen', 0):.2f}",
     ]
-    if gesture:
-        info_text.append(f"Gesture: {gesture}")
+    if gesture_left:
+        info_text.append(f"GestureL: {gesture_left}")
+    if gesture_right:
+        info_text.append(f"GestureR: {gesture_right}")
     y_offset = 30
     for text in info_text:
         cv2.putText(frame, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
