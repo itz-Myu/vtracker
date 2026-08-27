@@ -15,7 +15,7 @@ class FaceTracker:
         self.smooth_yaw = 0.0
         self.smooth_roll = 0.0
         self.calib_frames = []
-        
+
     def _initialize(self):
         base = python.BaseOptions(model_asset_path=self.model_path, delegate=python.BaseOptions.Delegate.GPU)
         options = vision.FaceLandmarkerOptions(
@@ -26,69 +26,61 @@ class FaceTracker:
             output_facial_transformation_matrixes=True,
         )
         self.landmarker = vision.FaceLandmarker.create_from_options(options)
-    
+
     def process(self, frame_rgb, frame_counter, calibration):
-        """
-        Обрабатывает кадр, возвращает словарь параметров лица и landmarks.
-        """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
         result = self.landmarker.detect_for_video(mp_image, frame_counter)
-        
+
         face_params = {}
         landmarks = None
-        
+
         if result and result.face_landmarks:
             face_landmarks = result.face_landmarks[0]
             landmarks = face_landmarks
             face_params["faceFound"] = True
-            
+
             # --- Углы из матрицы ---
             if result.facial_transformation_matrixes:
                 matrix = result.facial_transformation_matrixes[0]
                 r00, r01, r02 = matrix[0][0], matrix[0][1], matrix[0][2]
                 r10, r11, r12 = matrix[1][0], matrix[1][1], matrix[1][2]
                 r20, r21, r22 = matrix[2][0], matrix[2][1], matrix[2][2]
-                
+
                 roll = math.atan2(-r10, r00)   # Z
                 pitch = math.atan2(-r21, r22)  # X
                 yaw = math.asin(r20)           # Y
-                
+
                 pitch_deg = pitch * 180 / math.pi
                 yaw_deg = yaw * 180 / math.pi
                 roll_deg = roll * 180 / math.pi
             else:
                 pitch_deg = yaw_deg = roll_deg = 0.0
-            
-            # --- КАЛИБРОВКА (с учётом маппинга) ---
+
+            # --- Калибровка ---
             if not calibration.face_ready:
                 self.calib_frames.append((pitch_deg, yaw_deg, roll_deg))
                 if len(self.calib_frames) >= config.CALIBRATION_FRAMES:
                     avg_pitch = sum(f[0] for f in self.calib_frames) / len(self.calib_frames)
                     avg_yaw = sum(f[1] for f in self.calib_frames) / len(self.calib_frames)
                     avg_roll = sum(f[2] for f in self.calib_frames) / len(self.calib_frames)
-                    # Сохраняем смещения в соответствии с маппингом:
-                    # FaceAngleX = yaw, FaceAngleY = pitch, FaceAngleZ = roll
                     calibration.set_face_offset(avg_yaw, avg_pitch, avg_roll)
                     print("🎯 Калибровка лица завершена!")
                     self.calib_frames = []
-                # пока калибровка не готова — используем сырые углы
                 pitch_cal = pitch_deg
                 yaw_cal = yaw_deg
                 roll_cal = roll_deg
             else:
                 offset = calibration.get_face_offset()
-                # Вычитаем смещения из соответствующих углов
-                pitch_cal = pitch_deg - offset["FaceAngleY"]  # Y хранит pitch
-                yaw_cal = yaw_deg - offset["FaceAngleX"]      # X хранит yaw
-                roll_cal = roll_deg - offset["FaceAngleZ"]    # Z хранит roll
-                # ИНВЕРСИЯ БУДЕТ ПРИМЕНЕНА ПОЗЖЕ через FACE_AXIS_INVERT
-            
-            # Сглаживание
+                pitch_cal = pitch_deg - offset["FaceAngleY"]
+                yaw_cal = yaw_deg - offset["FaceAngleX"]
+                roll_cal = roll_deg - offset["FaceAngleZ"]
+
+            # --- Сглаживание (минимальное) ---
             self.smooth_pitch = utils.smooth_value(self.smooth_pitch, pitch_cal, config.FACE_SMOOTHING)
             self.smooth_yaw = utils.smooth_value(self.smooth_yaw, yaw_cal, config.FACE_SMOOTHING)
             self.smooth_roll = utils.smooth_value(self.smooth_roll, roll_cal, config.FACE_SMOOTHING)
-            
-            # Применяем маппинг осей
+
+            # --- Маппинг осей ---
             angle_values = {
                 "pitch": self.smooth_pitch,
                 "yaw": self.smooth_yaw,
@@ -103,7 +95,7 @@ class FaceTracker:
                 if config.FACE_AXIS_INVERT.get(param, False):
                     val = -val
                 face_params[param] = utils.clamp(val, -limit, limit)
-            
+
             # --- Blendshapes ---
             if result.face_blendshapes:
                 for b in result.face_blendshapes[0]:
@@ -143,16 +135,15 @@ class FaceTracker:
                         face_params["EyeRightY"] = score
                     elif name == "eyeLookDownRight":
                         face_params["EyeRightY"] = -score
-                # Усредняем улыбку
                 if "MouthSmileLeft" in face_params and "MouthSmileRight" in face_params:
                     face_params["MouthSmile"] = (face_params["MouthSmileLeft"] + face_params["MouthSmileRight"]) / 2
                     del face_params["MouthSmileLeft"]
                     del face_params["MouthSmileRight"]
         else:
             face_params["faceFound"] = False
-        
+
         return face_params, landmarks
-    
+
     def close(self):
         if self.landmarker:
             self.landmarker.close()
