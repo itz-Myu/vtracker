@@ -22,27 +22,31 @@ HAND_CONNECTIONS = [
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--no-gui', action='store_true', help='Отключить окно визуализации')
+    parser.add_argument('--no-gui',     action='store_true',       help='Отключить окно визуализации')
+    parser.add_argument('--no-hands',   action='store_true',       help='Отключить трекинг рук')
     parser.add_argument('--calib-file', default=config.CALIB_FILE, help='Файл калибровки')
     args = parser.parse_args()
-    
+
     calib = Calibration(args.calib_file)
     calib.load()
-    
+
     camera = Camera()
     face_tracker = FaceTracker()
-    hand_tracker = HandTracker()
+    hand_tracker = None if args.no_hands else HandTracker()
     vts = VTSClient(config.VTS_IP, config.VTS_PORT, config.PLUGIN_NAME, config.PLUGIN_DEVELOPER, config.PLUGIN_TOKEN)
-    
+
     await vts.connect()
-    
+
     last_active_alias = None
     last_gesture_left_alias = None
     last_gesture_right_alias = None
-    gesture_left_buffer = None
-    gesture_right_buffer = None
-    gesture_left_counter = 0
-    gesture_right_counter = 0
+
+    # История жестов для стабильности (защита от фантомных рук и моргания жестов)
+    gesture_history_left = []
+    gesture_history_right = []
+
+    # Троттлинг для VTS
+    last_param_send_time = 0
     frame_counter = 0
     last_time = time.time()
     fps = 0
@@ -56,7 +60,7 @@ async def main():
             frame = camera.get_frame()
             if frame is None:
                 break
-            
+
             frame_counter += 1
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -69,51 +73,33 @@ async def main():
                     print(f"❌ Не удалось переподключиться: {e}")
                     await asyncio.sleep(1)
                     continue
-            
+
             # --- Лицо ---
             face_params, face_landmarks = face_tracker.process(frame_rgb, frame_counter, calib)
-            
+
             # --- Руки ---
-            hand_params, gesture_left, gesture_right, hand_landmarks_list = hand_tracker.process(frame_rgb, frame_counter, calib)
-
-            # --- Жесты -> выражения (со стабилизацией) ---
-            DEBOUNCE_FRAMES = config.DEBOUNCE_FRAMES
-
-            # Буфер для левой руки
-            if gesture_left is not None:
-                if gesture_left == gesture_left_buffer:
-                    gesture_left_counter += 1
-                else:
-                    gesture_left_buffer = gesture_left
-                    gesture_left_counter = 1
+            if not args.no_hands:
+                hand_params, gesture_left, gesture_right, hand_landmarks_list = hand_tracker.process(frame_rgb, frame_counter, calib)
             else:
-                if gesture_left_buffer is not None:
-                    gesture_left_counter -= 1
-                    if gesture_left_counter <= 0:
-                        gesture_left_buffer = None
-                        gesture_left_counter = 0
-                else:
-                    gesture_left_counter = 0
+                hand_params, gesture_left, gesture_right, hand_landmarks_list = {}, None, None, []
 
-            # Буфер для правой руки
-            if gesture_right is not None:
-                if gesture_right == gesture_right_buffer:
-                    gesture_right_counter += 1
-                else:
-                    gesture_right_buffer = gesture_right
-                    gesture_right_counter = 1
-            else:
-                if gesture_right_buffer is not None:
-                    gesture_right_counter -= 1
-                    if gesture_right_counter <= 0:
-                        gesture_right_buffer = None
-                        gesture_right_counter = 0
-                else:
-                    gesture_right_counter = 0
+            # --- Жесты -> выражения (с историей для стабильности) ---
 
-            # Стабильные жесты (только если держатся достаточно долго)
-            stable_left = gesture_left_buffer if gesture_left_counter >= DEBOUNCE_FRAMES else None
-            stable_right = gesture_right_buffer if gesture_right_counter >= DEBOUNCE_FRAMES else None
+            # Добавляем текущие жесты в историю (храним последние 5 кадров)
+            gesture_history_left.append(gesture_left)
+            gesture_history_right.append(gesture_right)
+            if len(gesture_history_left) > 5: gesture_history_left.pop(0)
+            if len(gesture_history_right) > 5: gesture_history_right.pop(0)
+
+            # Жест считается стабильным, если он встретился хотя бы 3 раза из 5
+            def get_stable_gesture(history):
+                for g in history:
+                    if g is not None and history.count(g) >= 3:
+                        return g
+                return None
+
+            stable_left = get_stable_gesture(gesture_history_left)
+            stable_right = get_stable_gesture(gesture_history_right)
 
             # --- Определяем, что сейчас активно ---
             def get_alias(gesture, hand):
@@ -201,8 +187,12 @@ async def main():
             for key, value in hand_params.items():
                 if key not in ["faceFound"]:
                     param_list.append({"id": key, "value": value})
-            await vts.send_parameters(param_list)
-            
+            # Троттлинг
+            current_time = time.time()
+            if current_time - last_param_send_time >= 0.033:
+                await vts.send_parameters(param_list)
+                last_param_send_time = current_time
+
             # --- Визуализация ---
             if not args.no_gui:
                 if face_landmarks is not None:
@@ -221,23 +211,23 @@ async def main():
                     gesture_display = f"Right: {gesture_right}"
 
                 draw_info(frame, face_params, hand_params, fps, gesture_left, gesture_right)
-                
+
                 if show_frame(config.WINDOW_NAME, frame):
                     break
-            
+
             # FPS
             if frame_counter % 10 == 0:
                 current_time = time.time()
                 fps = 10 / (current_time - last_time)
                 last_time = current_time
-            
+
             # FPS ограничение
             elapsed = time.time() - frame_start_time
             if elapsed < target_frame_time:
                 await asyncio.sleep(target_frame_time - elapsed)
             else:
                 await asyncio.sleep(0.001)
-    
+
     except KeyboardInterrupt:
         print("🛑 Остановка...")
     finally:

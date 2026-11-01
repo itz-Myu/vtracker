@@ -1,5 +1,5 @@
 #!/bin/bash
-source tracker_env/bin/activate
+source .vtenv/bin/activate
 export DISPLAY=:0
 export XDG_SESSION_TYPE=x11
 export EGL_PLATFORM=x11
