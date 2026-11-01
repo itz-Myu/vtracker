@@ -1,8 +1,11 @@
 # face_tracker.py
 import math
+import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+import onnxruntime as ort
+import numpy as np
 import config
 import utils
 
@@ -23,7 +26,69 @@ class FaceTracker:
         self.smooth_eye_x = 0.0
         self.smooth_eye_y = 0.0
 
+        # Сглаживание для Babble
+        self.smooth_mouth_open = 0.0
+        self.smooth_mouth_smile = 0.0
+        self.smooth_tongue = 0.0
+        self.smooth_cheek = 0.0
+
         self.calib_frames = []
+
+        # --- Инициализация Babble ONNX ---
+        babble_model_path = "tasks/model.onnx"  # или путь к файлу
+        self.babble_session = ort.InferenceSession(
+            babble_model_path,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
+
+        # Список выходных параметров Babble (стандартный для 45 значений)
+        self.babble_blendshapes = [
+            "JawForward",
+            "JawLeft",
+            "JawRight",
+            "JawOpen",
+            "MouthClose",
+            "MouthFunnel",
+            "MouthPucker",
+            "MouthLeft",
+            "MouthRight",
+            "MouthSmileLeft",
+            "MouthSmileRight",
+            "MouthFrownLeft",
+            "MouthFrownRight",
+            "MouthDimpleLeft",
+            "MouthDimpleRight",
+            "MouthStretchLeft",
+            "MouthStretchRight",
+            "MouthRollLower",
+            "MouthRollUpper",
+            "MouthShrugLower",
+            "MouthShrugUpper",
+            "MouthPressLeft",
+            "MouthPressRight",
+            "MouthLowerDownLeft",
+            "MouthLowerDownRight",
+            "MouthUpperUpLeft",
+            "MouthUpperUpRight",
+            "CheekPuff",
+            "CheekSquintLeft",
+            "CheekSquintRight",
+            "NoseSneerLeft",
+            "NoseSneerRight",
+            "TongueOut",
+            "CheekSuck",
+            "MouthRollIn",
+            "MouthShrug",
+            "MouthPress",
+            "MouthUpperUp",
+            "MouthLowerDown",
+            "MouthUpperRight",
+            "MouthUpperLeft",
+            "MouthLowerRight",
+            "MouthLowerLeft",
+            "MouthUpperMid",
+            "MouthLowerMid",
+        ]
 
     def _initialize(self):
         base = python.BaseOptions(
@@ -148,16 +213,6 @@ class FaceTracker:
                         eye_blink_l = score
                     elif name == "eyeBlinkRight":
                         eye_blink_r = score
-                    elif name == "jawOpen":
-                        face_params["MouthOpen"] = score
-                    elif name == "mouthSmileLeft":
-                        face_params["MouthSmileLeft"] = score
-                    elif name == "mouthSmileRight":
-                        face_params["MouthSmileRight"] = score
-                    elif name == "tongueOut":
-                        face_params["TongueOut"] = score
-                    elif name == "cheekPuff":
-                        face_params["CheekPuff"] = score
                     elif name == "browInnerUp":
                         brow_up = score
                     elif name in ("browDownLeft", "browDownRight"):
@@ -192,6 +247,110 @@ class FaceTracker:
                     ) / 2
                     del face_params["MouthSmileLeft"]
                     del face_params["MouthSmileRight"]
+
+            # --- Обработка рта и щёк через Project Babble (ONNX) ---
+            h, w = frame_rgb.shape[:2]
+
+            mouth_xs = [
+                face_landmarks[61].x * w,
+                face_landmarks[291].x * w,
+                face_landmarks[0].x * w,
+                face_landmarks[17].x * w,
+            ]
+            mouth_ys = [
+                face_landmarks[61].y * h,
+                face_landmarks[291].y * h,
+                face_landmarks[0].y * h,
+                face_landmarks[17].y * h,
+            ]
+
+            x1, x2 = min(mouth_xs), max(mouth_xs)
+            y1, y2 = min(mouth_ys), max(mouth_ys)
+
+            box_w, box_h = x2 - x1, y2 - y1
+            # УВЕЛИЧИЛИ ОТСТУП С 1.8 ДО 2.2 (чтобы захватить губы при "Ы" и "О")
+            side = max(box_w, box_h) * 2.2
+
+            cx, cy = x1 + box_w / 2, y1 + box_h / 2
+            x1 = int(max(0, cx - side / 2))
+            x2 = int(min(w, cx + side / 2))
+            y1 = int(max(0, cy - side / 2))
+            y2 = int(min(h, cy + side / 2))
+
+            mouth_roi = frame_rgb[y1:y2, x1:x2]
+            if mouth_roi.size > 0:
+                mouth_roi = cv2.resize(mouth_roi, (224, 224))
+                gray = cv2.cvtColor(mouth_roi, cv2.COLOR_RGB2GRAY)
+                input_tensor = gray.astype(np.float32) / 255.0
+                input_tensor = np.expand_dims(input_tensor, axis=0)
+                input_tensor = np.expand_dims(input_tensor, axis=0)
+
+                input_name = self.babble_session.get_inputs()[0].name
+                babble_output = self.babble_session.run(
+                    None, {input_name: input_tensor}
+                )[0][0]
+
+                babble_dict = {
+                    name: float(babble_output[i])
+                    for i, name in enumerate(self.babble_blendshapes)
+                    if i < len(babble_output)
+                }
+
+                # 1. Считаем открытие рта (JawOpen)
+                raw_jaw = babble_dict.get("JawOpen", 0.0)
+                # УВЕЛИЧИЛИ МНОЖИТЕЛЬ ДО 4.5 (чтобы "Ы" и "О" открывали рот до конца)
+                target_mouth = min(1.0, max(0.0, raw_jaw * 4.5))
+
+                # 2. Считаем улыбку
+                raw_smile = max(
+                    babble_dict.get("MouthSmileLeft", 0.0),
+                    babble_dict.get("MouthSmileRight", 0.0),
+                )
+                if raw_smile < 0.06:
+                    target_smile = 0.0
+                else:
+                    target_smile = min(1.0, (raw_smile - 0.06) * 8.0)
+
+                # 3. Гасим улыбку, если рот широко открыт
+                if target_mouth > 0.4:
+                    target_smile = target_smile * max(
+                        0.0, 1.0 - (target_mouth - 0.4) * 2.5
+                    )
+
+                # 4. МЕДИАННЫЙ ФИЛЬТР ДЛЯ ЧЕЛЮСТИ (лечит мерцание)
+                if not hasattr(self, "jaw_history"):
+                    self.jaw_history = []
+                self.jaw_history.append(target_mouth)
+                if len(self.jaw_history) > 3:
+                    self.jaw_history.pop(0)
+                # Берем среднее значение из 3 последних кадров, чтобы сгладить провалы
+                stable_mouth = sum(self.jaw_history) / len(self.jaw_history)
+
+                target_tongue = babble_dict.get("TongueOut", 0.0)
+                target_cheek = babble_dict.get("CheekPuff", 0.0)
+
+                self.smooth_mouth_open = utils.smooth_value(
+                    self.smooth_mouth_open, stable_mouth, 0.5
+                )
+                self.smooth_mouth_smile = utils.smooth_value(
+                    self.smooth_mouth_smile, target_smile, 0.2
+                )
+
+                self.smooth_tongue = utils.smooth_value(
+                    self.smooth_tongue, target_tongue, 0.3
+                )
+                self.smooth_cheek = utils.smooth_value(
+                    self.smooth_cheek, target_cheek, 0.3
+                )
+
+                face_params["MouthOpen"] = self.smooth_mouth_open
+                face_params["MouthSmile"] = self.smooth_mouth_smile
+                face_params["TongueOut"] = self.smooth_tongue
+                face_params["CheekPuff"] = self.smooth_cheek
+
+                print(
+                    f"BABBLE -> VTS: Open={face_params['MouthOpen']:.2f}, Smile={face_params['MouthSmile']:.2f}, JawRaw={raw_jaw:.2f}"
+                )
 
             # --- Применяем сглаживание и расчеты ---
 

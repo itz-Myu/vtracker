@@ -4,6 +4,7 @@ import json
 import websockets
 import time
 
+
 class VTSClient:
     def __init__(self, ip, port, plugin_name, plugin_developer, plugin_token):
         self.ip = ip
@@ -19,7 +20,9 @@ class VTSClient:
     async def connect(self):
         uri = f"ws://{self.ip}:{self.port}"
         try:
-            self.websocket = await websockets.connect(uri, ping_interval=30, ping_timeout=30)
+            self.websocket = await websockets.connect(
+                uri, ping_interval=20, ping_timeout=20, max_size=1024 * 1024
+            )
             await self._authenticate()
             await self._get_expressions()
             self.connected = True
@@ -38,8 +41,8 @@ class VTSClient:
             "data": {
                 "pluginName": self.plugin_name,
                 "pluginDeveloper": self.plugin_developer,
-                "authenticationToken": self.plugin_token
-            }
+                "authenticationToken": self.plugin_token,
+            },
         }
         await self.websocket.send(json.dumps(auth_msg))
         response = await self.websocket.recv()
@@ -52,7 +55,7 @@ class VTSClient:
             "apiName": "VTubeStudioPublicAPI",
             "apiVersion": "1.0",
             "requestID": "get_expr",
-            "messageType": "ExpressionStateRequest"
+            "messageType": "ExpressionStateRequest",
         }
         await self.websocket.send(json.dumps(request))
         response = await self.websocket.recv()
@@ -61,7 +64,9 @@ class VTSClient:
             if "data" in data and "expressions" in data["data"]:
                 for expr in data["data"]["expressions"]:
                     self.expressions[expr["name"]] = expr["file"]
-                print(f"📋 Получено {len(self.expressions)} выражений: {list(self.expressions.keys())}")
+                print(
+                    f"📋 Получено {len(self.expressions)} выражений: {list(self.expressions.keys())}"
+                )
         except:
             print("⚠️ Не удалось получить список выражений")
 
@@ -74,10 +79,7 @@ class VTSClient:
             "apiVersion": "1.0",
             "requestID": "params",
             "messageType": "InjectParameterDataRequest",
-            "data": {
-                "faceFound": True,
-                "parameterValues": param_list
-            }
+            "data": {"faceFound": True, "parameterValues": param_list},
         }
         try:
             await self.websocket.send(json.dumps(payload))
@@ -93,7 +95,9 @@ class VTSClient:
             print(f"⚠️ Не отправляем выражение '{alias}', так как VTS не подключён")
             return
         if alias not in self.expressions:
-            print(f"⚠️ Выражение '{alias}' не найдено в модели (доступны: {list(self.expressions.keys())})")
+            print(
+                f"⚠️ Выражение '{alias}' не найдено в модели (доступны: {list(self.expressions.keys())})"
+            )
             return
         # Ограничиваем частоту отправки (не чаще 1 раза в 0.5 секунды)
         now = time.time()
@@ -107,10 +111,7 @@ class VTSClient:
             "apiVersion": "1.0",
             "requestID": f"toggle_{alias}",
             "messageType": "ExpressionActivationRequest",
-            "data": {
-                "expressionFile": expr_file,
-                "active": active
-            }
+            "data": {"expressionFile": expr_file, "active": active},
         }
         try:
             await self.websocket.send(json.dumps(request))
