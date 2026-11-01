@@ -48,7 +48,11 @@ async def main():
     fps = 0
     
     try:
+        target_fps = 60
+        target_frame_time = 1 / target_fps
+
         while True:
+            frame_start_time = time.time()
             frame = camera.get_frame()
             if frame is None:
                 break
@@ -227,7 +231,12 @@ async def main():
                 fps = 10 / (current_time - last_time)
                 last_time = current_time
             
-            await asyncio.sleep(0.001)
+            # FPS ограничение
+            elapsed = time.time() - frame_start_time
+            if elapsed < target_frame_time:
+                await asyncio.sleep(target_frame_time - elapsed)
+            else:
+                await asyncio.sleep(0.001)
     
     except KeyboardInterrupt:
         print("🛑 Остановка...")

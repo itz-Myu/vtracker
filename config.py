@@ -80,8 +80,8 @@ GESTURE_ALIAS_RIGHT = {
 
 ## Алиасы для двухручных жестов
 GESTURE_TWO_HAND_ALIAS = {
-    "heart": "st2",
-    "fingers_together": "love",
+    "heart": "eye squint",
+    "fingers_together": "boykisser face",
 }
 
 ## Комбинации жестов

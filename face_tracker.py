@@ -14,6 +14,7 @@ class FaceTracker:
         self.smooth_pitch = 0.0
         self.smooth_yaw = 0.0
         self.smooth_roll = 0.0
+        self.smooth_brows = 0.0
         self.calib_frames = []
 
     def _initialize(self):
@@ -96,6 +97,24 @@ class FaceTracker:
                     val = -val
                 face_params[param] = utils.clamp(val, -limit, limit)
 
+            # --- Брови (геометрический метод) ---
+            if landmarks:
+                nose = landmarks[1]
+                brow_left = landmarks[46]
+                brow_right = landmarks[276]
+                brow_height_left = (brow_left.y - nose.y)
+                brow_height_right = (brow_right.y - nose.y)
+                avg_brow_height = (brow_height_left + brow_height_right) / 2
+
+                # Настрой под себя:
+                NEUTRAL_BROW_HEIGHT = -0.130   # измени, если в покое Brows не 0
+                BROW_SCALE = 30.0              # измени, если амплитуда слишком мала/велика
+
+                brows_value = (NEUTRAL_BROW_HEIGHT - avg_brow_height) * BROW_SCALE
+                brows_value = utils.clamp(brows_value, -0.3, 1.2)
+                self.smooth_brows = utils.smooth_value(self.smooth_brows, brows_value, 0.5)
+                face_params["Brows"] = self.smooth_brows
+
             # --- Blendshapes ---
             if result.face_blendshapes:
                 for b in result.face_blendshapes[0]:
@@ -113,8 +132,6 @@ class FaceTracker:
                         face_params["MouthSmileRight"] = score
                     elif name == "tongueOut":
                         face_params["TongueOut"] = score
-                    elif name == "browInnerUp":
-                        face_params["Brows"] = score
                     elif name == "cheekPuff":
                         face_params["CheekPuff"] = score
                     elif name == "noseSneerLeft" or name == "noseSneerRight":
