@@ -132,30 +132,22 @@ class HandTracker:
                 dx = index_base.x - pinky_base.x
                 dy = index_base.y - pinky_base.y
                 dist = math.sqrt(dx * dx + dy * dy)
+
                 if dist < 0.001:
                     dist = 0.001
-                dx_norm = dx / dist
-                dy_norm = dy / dist
-                angle_x_raw = math.asin(max(-1.0, min(1.0, dx_norm))) * 180.0 / math.pi
-                angle_x_raw = utils.clamp(
-                    angle_x_raw, -config.HAND_ANGLE_LIMIT, config.HAND_ANGLE_LIMIT
-                )
+
+                # ВОЗВРАЩАЕМ ASIN (он не делает скачков и не ломает сглаживание)
+                angle_x_raw = math.asin(max(-1.0, min(1.0, dx / dist))) * 180.0 / math.pi
+                angle_x_raw = utils.clamp(angle_x_raw, -config.HAND_ANGLE_LIMIT, config.HAND_ANGLE_LIMIT)
                 angle_z_raw = 0.0  # пока не используем
 
                 if is_left:
                     # --- КАЛИБРОВКА ЛЕВОЙ РУКИ ---
                     if not calibration.hand_left_ready:
                         self.calib_hand_frames_left.append((angle_x_raw, angle_z_raw))
-                        if (
-                            len(self.calib_hand_frames_left)
-                            >= config.HAND_CALIBRATION_FRAMES
-                        ):
-                            avg_x = sum(
-                                f[0] for f in self.calib_hand_frames_left
-                            ) / len(self.calib_hand_frames_left)
-                            avg_z = sum(
-                                f[1] for f in self.calib_hand_frames_left
-                            ) / len(self.calib_hand_frames_left)
+                        if len(self.calib_hand_frames_left) >= config.HAND_CALIBRATION_FRAMES:
+                            avg_x = sum(f[0] for f in self.calib_hand_frames_left) / len(self.calib_hand_frames_left)
+                            avg_z = sum(f[1] for f in self.calib_hand_frames_left) / len(self.calib_hand_frames_left)
                             calibration.set_hand_offset("left", avg_x, avg_z)
                             print("🎯 Калибровка левой руки завершена!")
                             self.calib_hand_frames_left = []
@@ -165,19 +157,14 @@ class HandTracker:
                         offset = calibration.get_hand_offset("left")
                         angle_x_cal = angle_x_raw - offset["AngleX"]
                         angle_z_cal = angle_z_raw - offset["AngleZ"]
-                        angle_x_cal = -angle_x_cal  # инвертируем X для левой
-                        self.smooth_angle_x_left = utils.smooth_value(
-                            self.smooth_angle_x_left, angle_x_cal, config.HAND_SMOOTHING
-                        )
-                        self.smooth_angle_z_left = utils.smooth_value(
-                            self.smooth_angle_z_left, angle_z_cal, config.HAND_SMOOTHING
-                        )
-                        self.smooth_angle_x_left = utils.dead_zone(
-                            self.smooth_angle_x_left, config.DEAD_ZONE
-                        )
-                        self.smooth_angle_z_left = utils.dead_zone(
-                            self.smooth_angle_z_left, config.DEAD_ZONE
-                        )
+
+                        # ИНВЕРСИЯ ДЛЯ ЛЕВОЙ РУКИ (ты был прав, она зеркальна)
+                        angle_x_cal = -angle_x_cal 
+
+                        self.smooth_angle_x_left = utils.smooth_value(self.smooth_angle_x_left, angle_x_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_z_left = utils.smooth_value(self.smooth_angle_z_left, angle_z_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_x_left = utils.dead_zone(self.smooth_angle_x_left, config.DEAD_ZONE)
+                        self.smooth_angle_z_left = utils.dead_zone(self.smooth_angle_z_left, config.DEAD_ZONE)
                         hand_params["HandLeftAngleX"] = self.smooth_angle_x_left
                         hand_params["HandLeftAngleZ"] = self.smooth_angle_z_left
 
@@ -188,16 +175,9 @@ class HandTracker:
                     # --- КАЛИБРОВКА ПРАВОЙ РУКИ ---
                     if not calibration.hand_right_ready:
                         self.calib_hand_frames_right.append((angle_x_raw, angle_z_raw))
-                        if (
-                            len(self.calib_hand_frames_right)
-                            >= config.HAND_CALIBRATION_FRAMES
-                        ):
-                            avg_x = sum(
-                                f[0] for f in self.calib_hand_frames_right
-                            ) / len(self.calib_hand_frames_right)
-                            avg_z = sum(
-                                f[1] for f in self.calib_hand_frames_right
-                            ) / len(self.calib_hand_frames_right)
+                        if len(self.calib_hand_frames_right) >= config.HAND_CALIBRATION_FRAMES:
+                            avg_x = sum(f[0] for f in self.calib_hand_frames_right) / len(self.calib_hand_frames_right)
+                            avg_z = sum(f[1] for f in self.calib_hand_frames_right) / len(self.calib_hand_frames_right)
                             calibration.set_hand_offset("right", avg_x, avg_z)
                             print("🎯 Калибровка правой руки завершена!")
                             self.calib_hand_frames_right = []
@@ -207,23 +187,14 @@ class HandTracker:
                         offset = calibration.get_hand_offset("right")
                         angle_x_cal = angle_x_raw - offset["AngleX"]
                         angle_z_cal = angle_z_raw - offset["AngleZ"]
-                        angle_x_cal = angle_x_cal  # для правой не инвертируем
-                        self.smooth_angle_x_right = utils.smooth_value(
-                            self.smooth_angle_x_right,
-                            angle_x_cal,
-                            config.HAND_SMOOTHING,
-                        )
-                        self.smooth_angle_z_right = utils.smooth_value(
-                            self.smooth_angle_z_right,
-                            angle_z_cal,
-                            config.HAND_SMOOTHING,
-                        )
-                        self.smooth_angle_x_right = utils.dead_zone(
-                            self.smooth_angle_x_right, config.DEAD_ZONE
-                        )
-                        self.smooth_angle_z_right = utils.dead_zone(
-                            self.smooth_angle_z_right, config.DEAD_ZONE
-                        )
+
+                        # ДЛЯ ПРАВОЙ РУКИ ИНВЕРСИИ НЕТ (она эталонная)
+                        angle_x_cal = angle_x_cal 
+
+                        self.smooth_angle_x_right = utils.smooth_value(self.smooth_angle_x_right, angle_x_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_z_right = utils.smooth_value(self.smooth_angle_z_right, angle_z_cal, config.HAND_SMOOTHING)
+                        self.smooth_angle_x_right = utils.dead_zone(self.smooth_angle_x_right, config.DEAD_ZONE)
+                        self.smooth_angle_z_right = utils.dead_zone(self.smooth_angle_z_right, config.DEAD_ZONE)
                         hand_params["HandRightAngleX"] = self.smooth_angle_x_right
                         hand_params["HandRightAngleZ"] = self.smooth_angle_z_right
 
