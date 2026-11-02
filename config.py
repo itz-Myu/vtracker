@@ -44,12 +44,12 @@ FACE_AXIS_MAP = {
 
 # --- Настройки жестов ---
 GESTURE_THRESHOLD_EXTENDED = 0.6  # порог для разогнутых пальцев (0..1)
-GESTURE_THRESHOLD_FOLDED   = 0.3  # порог для согнутых пальцев (0..1)
+GESTURE_THRESHOLD_FOLDED   = 0.35  # порог для согнутых пальцев (0..1)
 GESTURE_DISTANCE_THRESHOLD = 0.08  # порог расстояния для жеста OK (в нормализованных координатах)
 
 ## Индивидуальные пороги
-GESTURE_THUMB_EXTENDED = 0.5
-GESTURE_THUMB_FOLDED   = 0.3
+GESTURE_THUMB_EXTENDED = 0.45
+GESTURE_THUMB_FOLDED   = 0.35
 
 ## Общие алиасы
 GESTURE_ALIAS = {

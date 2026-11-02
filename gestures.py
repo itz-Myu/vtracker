@@ -55,14 +55,30 @@ def recognize_gesture(finger_open_left, landmarks_left, finger_open_right=None, 
         # Мир (✌️)
         if set(extended) == {1, 2} and all_folded(finger_open_left, [0, 3, 4]):
             return "peace"
-        # OK (👌) — большой согнут, указательный разогнут, остальные разогнуты, расстояние мало
-        if (is_folded(finger_open_left, 0) and
-            is_extended(finger_open_left, 1) and
-            all_extended(finger_open_left, [2, 3, 4])):
-            thumb_tip = landmarks_left[4]
-            index_tip = landmarks_left[8]
-            dist = math.sqrt((thumb_tip.x - index_tip.x)**2 + (thumb_tip.y - index_tip.y)**2)
-            if dist < config.GESTURE_DISTANCE_THRESHOLD:
+        # OK (👌) — указательный, средний, безымянный и мизинец разогнуты.
+        thumb_tip = landmarks_left[4]
+        index_tip = landmarks_left[8]
+        wrist = landmarks_left[0]
+        middle_mcp = landmarks_left[9]
+
+        dist = math.sqrt(
+            (thumb_tip.x - index_tip.x)**2 + 
+            (thumb_tip.y - index_tip.y)**2 + 
+            (thumb_tip.z - index_tip.z)**2
+        )
+        palm_size = math.sqrt(
+            (wrist.x - middle_mcp.x)**2 + 
+            (wrist.y - middle_mcp.y)**2 + 
+            (wrist.z - middle_mcp.z)**2
+        )
+
+        if palm_size > 1e-6 and (dist / palm_size) < 0.45:
+            # Пальцы касаются. Теперь проверяем, что остальные не сжаты в кулак.
+            # Достаточно, чтобы они были чуть разогнуты (больше 0.2), 
+            # так как при нормальном ОК указательный сгибается, а мизинец часто скручен.
+            if (finger_open_left[2] > 0.2 and 
+                finger_open_left[3] > 0.2 and 
+                finger_open_left[4] > 0.2):
                 return "ok"
         # Большой палец вверх (👍)
         if set(extended) == {0} and all_folded(finger_open_left, [1, 2, 3, 4]):
