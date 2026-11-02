@@ -18,6 +18,8 @@ class FaceTracker:
 
         # Переменные для сглаживания мимики
         self.smooth_brows = 0.0
+        self.smooth_brow_left = 0.0
+        self.smooth_brow_right = 0.0
         self.smooth_eye_open_l = 1.0
         self.smooth_eye_open_r = 1.0
         self.smooth_eye_x = 0.0
@@ -132,6 +134,10 @@ class FaceTracker:
             # Переменные для сбора данных из блендшейпов
             brow_up = 0.0
             brow_down = 0.0
+            brow_down_left = 0.0
+            brow_down_right = 0.0
+            brow_outer_up_left = 0.0
+            brow_outer_up_right = 0.0
             look_in_left, look_out_left = 0.0, 0.0
             look_up_left, look_down_left = 0.0, 0.0
             look_in_right, look_out_right = 0.0, 0.0
@@ -160,8 +166,14 @@ class FaceTracker:
                         face_params["CheekPuff"] = score
                     elif name == "browInnerUp":
                         brow_up = score
-                    elif name in ("browDownLeft", "browDownRight"):
-                        brow_down = max(brow_down, score)
+                    elif name == "browDownLeft":
+                        brow_down_left = score
+                    elif name == "browDownRight":
+                        brow_down_right = score
+                    elif name == "browOuterUpLeft":
+                        brow_outer_up_left = score
+                    elif name == "browOuterUpRight":
+                        brow_outer_up_right = score
                     elif name == "noseSneerLeft" or name == "noseSneerRight":
                         face_params["FaceAngry"] = max(
                             face_params.get("FaceAngry", 0), score
@@ -195,9 +207,24 @@ class FaceTracker:
 
             # --- Применяем сглаживание и расчеты ---
 
-            # 1. Брови
-            brows_value = utils.clamp((brow_up * 1.2) - (brow_down * 0.6), -0.3, 1.2)
-            self.smooth_brows = utils.smooth_value(self.smooth_brows, brows_value, 0.15)
+            # 1. Брови (раздельно левая и правая)
+            # Внутренняя часть поднимает обе брови, внешняя и опускание - индивидуально
+            left_brow_raw = (brow_up * 1.0) + (brow_outer_up_left * 0.8) - (brow_down_left * 0.6)
+            right_brow_raw = (brow_up * 1.0) + (brow_outer_up_right * 0.8) - (brow_down_right * 0.6)
+
+            # Клипаем в диапазон 0..1 (VTS ждёт 0..1 для BrowLeftY/RightY)
+            target_brow_l = utils.clamp(left_brow_raw, 0.0, 1.0)
+            target_brow_r = utils.clamp(right_brow_raw, 0.0, 1.0)
+
+            self.smooth_brow_left = utils.smooth_value(self.smooth_brow_left, target_brow_l, 0.15)
+            self.smooth_brow_right = utils.smooth_value(self.smooth_brow_right, target_brow_r, 0.15)
+
+            face_params["BrowLeftY"] = self.smooth_brow_left
+            face_params["BrowRightY"] = self.smooth_brow_right
+
+            # Оставляем общий Brows для обратной совместимости 
+            # (если в других моделях он используется)
+            self.smooth_brows = (self.smooth_brow_left + self.smooth_brow_right) / 2.0
             face_params["Brows"] = self.smooth_brows
 
             # 2. Моргание (сглаживаем, чтобы не дёргалось)
