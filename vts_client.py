@@ -4,6 +4,7 @@ import json
 import websockets
 import time
 
+
 class VTSClient:
     def __init__(self, ip, port, plugin_name, plugin_developer, plugin_token):
         self.ip = ip
@@ -15,11 +16,19 @@ class VTSClient:
         self.connected = False
         self.expressions = {}
         self.last_toggle_time = 0
+        self._req_counter = 0
+        self._last_send_ok = time.time()
 
     async def connect(self):
         uri = f"ws://{self.ip}:{self.port}"
         try:
-            self.websocket = await websockets.connect(uri, ping_interval=30, ping_timeout=30)
+            self.websocket = await websockets.connect(
+                uri,
+                ping_interval=15,
+                ping_timeout=10,
+                max_size=2 * 1024 * 1024,
+                close_timeout=5,
+            )
             await self._authenticate()
             await self._get_expressions()
             self.connected = True
@@ -38,8 +47,8 @@ class VTSClient:
             "data": {
                 "pluginName": self.plugin_name,
                 "pluginDeveloper": self.plugin_developer,
-                "authenticationToken": self.plugin_token
-            }
+                "authenticationToken": self.plugin_token,
+            },
         }
         await self.websocket.send(json.dumps(auth_msg))
         response = await self.websocket.recv()
@@ -52,7 +61,7 @@ class VTSClient:
             "apiName": "VTubeStudioPublicAPI",
             "apiVersion": "1.0",
             "requestID": "get_expr",
-            "messageType": "ExpressionStateRequest"
+            "messageType": "ExpressionStateRequest",
         }
         await self.websocket.send(json.dumps(request))
         response = await self.websocket.recv()
@@ -61,7 +70,9 @@ class VTSClient:
             if "data" in data and "expressions" in data["data"]:
                 for expr in data["data"]["expressions"]:
                     self.expressions[expr["name"]] = expr["file"]
-                print(f"📋 Получено {len(self.expressions)} выражений: {list(self.expressions.keys())}")
+                print(
+                    f"📋 Получено {len(self.expressions)} выражений: {list(self.expressions.keys())}"
+                )
         except:
             print("⚠️ Не удалось получить список выражений")
 
@@ -69,20 +80,33 @@ class VTSClient:
         if not self.connected:
             print("⚠️ Не отправляем параметры, так как VTS не подключён")
             return
+
+        self._req_counter = (self._req_counter + 1) % 1000
+        request_id = f"params_{int(time.time() * 1000)}_{self._req_counter}"
+
         payload = {
             "apiName": "VTubeStudioPublicAPI",
             "apiVersion": "1.0",
-            "requestID": "params",
+            "requestID": request_id,
             "messageType": "InjectParameterDataRequest",
-            "data": {
-                "faceFound": True,
-                "parameterValues": param_list
-            }
+            "data": {"faceFound": True, "parameterValues": param_list},
         }
+
         try:
             await self.websocket.send(json.dumps(payload))
+            self._last_send_ok = time.time()
+
+            # Дренируем ответ, чтобы receive-буфер не рос
+            try:
+                await asyncio.wait_for(self.websocket.recv(), timeout=0.05)
+            except asyncio.TimeoutError:
+                pass
+
         except websockets.exceptions.ConnectionClosed as e:
-            print(f"⚠️ Соединение закрыто при отправке параметров: {e}")
+            print(
+                f"⚠️ Соединение закрыто при отправке параметров: {e} "
+                f"(последний успешный send был {time.time() - self._last_send_ok:.1f} сек назад)"
+            )
             self.connected = False
         except Exception as e:
             print(f"⚠️ Ошибка отправки параметров: {e}")
@@ -93,7 +117,13 @@ class VTSClient:
             print(f"⚠️ Не отправляем выражение '{alias}', так как VTS не подключён")
             return
         if alias not in self.expressions:
-            print(f"⚠️ Выражение '{alias}' не найдено в модели (доступны: {list(self.expressions.keys())})")
+            if not hasattr(self, "_warned_aliases"):
+                self._warned_aliases = set()
+            if alias not in self._warned_aliases:
+                print(
+                    f"⚠️ Выражение '{alias}' не найдено в модели — жест будет игнорироваться"
+                )
+                self._warned_aliases.add(alias)
             return
         # Ограничиваем частоту отправки (не чаще 1 раза в 0.5 секунды)
         now = time.time()
@@ -102,18 +132,22 @@ class VTSClient:
         self.last_toggle_time = now
 
         expr_file = self.expressions[alias]
+
+        request_id = f"toggle_{alias}_{int(time.time() * 1000)}"
         request = {
             "apiName": "VTubeStudioPublicAPI",
             "apiVersion": "1.0",
-            "requestID": f"toggle_{alias}",
+            "requestID": request_id,
             "messageType": "ExpressionActivationRequest",
-            "data": {
-                "expressionFile": expr_file,
-                "active": active
-            }
+            "data": {"expressionFile": expr_file, "active": active},
         }
+
         try:
             await self.websocket.send(json.dumps(request))
+            try:
+                await asyncio.wait_for(self.websocket.recv(), timeout=0.05)
+            except asyncio.TimeoutError:
+                pass
         except websockets.exceptions.ConnectionClosed as e:
             print(f"⚠️ Соединение закрыто при отправке выражения: {e}")
             self.connected = False
