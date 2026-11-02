@@ -1,11 +1,12 @@
+# Python
 __pycache__/
 .vtenv/
 pyproject.toml
-
-tasks/
-secrets/
 calibration.json
-get.py
-listen.py
-get_toket.py
-icon128_base64.txt
+
+# MediaPipe
+tasks/*
+!tasks/landmarkers_here
+
+# Secrets
+secrets/token.txt
