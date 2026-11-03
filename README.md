@@ -1,4 +1,6 @@
-# VTracker 🎭🖐️
+<p align="center">
+  <img src="./.github/assets/VTracker.png" alt="VTracker Banner" width="100%">
+</p>
 
 **VTracker** — это легковесный и быстрый трекер мимики и рук для VTube Studio, работающий без iPhone. Использует мощь **MediaPipe** и **OpenCV** для захвата лица и рук через обычную веб-камеру, и передает данные в VTS по WebSocket API.
 

@@ -14,7 +14,7 @@ PLUGIN_TOKEN     = read_secret("token.txt")
 PLUGIN_ICON      = read_secret("icon_base64.txt")
 
 CAMERA_ID       = 0
-WINDOW_NAME     = "VTracker (MediaPipe)"
+WINDOW_NAME     = "VTracker Visualization"
 FACE_MODEL_PATH = "tasks/face_landmarker.task"
 HAND_MODEL_PATH = "tasks/hand_landmarker.task"
 
