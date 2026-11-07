@@ -24,6 +24,9 @@ class FaceTracker:
         self.smooth_eye_open_r = 1.0
         self.smooth_eye_x = 0.0
         self.smooth_eye_y = 0.0
+        # Для CheekPuff
+        self.smooth_cheek_puff = 0.0
+        self.base_cheek_dist = None
 
         self.calib_frames = []
 
@@ -160,10 +163,12 @@ class FaceTracker:
                         face_params["MouthSmileLeft"] = score
                     elif name == "mouthSmileRight":
                         face_params["MouthSmileRight"] = score
+                    elif name == "mouthFunnel":
+                        face_params["MouthFunnel"] = score
+                    elif name == "mouthShrugLower":
+                        face_params["MouthShrugLower"] = score
                     elif name == "tongueOut":
                         face_params["TongueOut"] = score
-                    elif name == "cheekPuff":
-                        face_params["CheekPuff"] = score
                     elif name == "browInnerUp":
                         brow_up = score
                     elif name == "browDownLeft":
@@ -204,6 +209,60 @@ class FaceTracker:
                     ) / 2
                     del face_params["MouthSmileLeft"]
                     del face_params["MouthSmileRight"]
+
+            # --- CheekPuff (3D Геометрия + защита от наклонов) ---
+            geo_cheek_dist_avg = 0.0
+            if face_landmarks:
+                nose_tip = face_landmarks[4]
+                left_cheek = face_landmarks[205]
+                right_cheek = face_landmarks[425]
+
+                # 3D Евклидово расстояние (спасает от сжатия перспективы)
+                d_left = math.sqrt(
+                    (nose_tip.x - left_cheek.x)**2 + 
+                    (nose_tip.y - left_cheek.y)**2 + 
+                    (nose_tip.z - left_cheek.z)**2
+                )
+                d_right = math.sqrt(
+                    (nose_tip.x - right_cheek.x)**2 + 
+                    (nose_tip.y - right_cheek.y)**2 + 
+                    (nose_tip.z - right_cheek.z)**2
+                )
+                geo_cheek_dist_avg = (d_left + d_right) / 2.0
+
+                # Инициализация базы (только когда голова ровно)
+                if self.base_cheek_dist is None and abs(self.smooth_pitch) < 15.0 and abs(self.smooth_yaw) < 15.0:
+                    self.base_cheek_dist = geo_cheek_dist_avg
+
+            cheek_puff_value = 0.0
+            rel_change = 0.0
+
+            if self.base_cheek_dist and self.base_cheek_dist > 0:
+                rel_change = (geo_cheek_dist_avg - self.base_cheek_dist) / self.base_cheek_dist
+
+                CHEEK_PUFF_THRESHOLD = 0.03  # 3% мертвая зона
+                CHEEK_PUFF_MAX = 0.10        # 10% полное надувание
+
+                if rel_change > CHEEK_PUFF_THRESHOLD:
+                    cheek_puff_value = utils.clamp(
+                        (rel_change - CHEEK_PUFF_THRESHOLD) / (CHEEK_PUFF_MAX - CHEEK_PUFF_THRESHOLD), 
+                        0.0, 1.0
+                    )
+
+            # --- ПЛАВНАЯ ЗАЩИТА ОТ НАКЛОНОВ ---
+            pitch_factor = max(0.0, min(1.0, (25.0 - abs(self.smooth_pitch)) / 10.0))
+            yaw_factor = max(0.0, min(1.0, (25.0 - abs(self.smooth_yaw)) / 10.0))
+
+            # Умножаем значение на эти коэффициенты
+            cheek_puff_value *= (pitch_factor * yaw_factor)
+
+            # Фильтр по рту (если открыт - не надуваем)
+            if face_params.get("MouthOpen", 0.0) > 0.4:
+                cheek_puff_value = 0.0
+
+            # Сглаживание
+            self.smooth_cheek_puff = utils.smooth_value(self.smooth_cheek_puff, cheek_puff_value, 0.2)
+            face_params["CheekPuff"] = self.smooth_cheek_puff
 
             # --- Применяем сглаживание и расчеты ---
 

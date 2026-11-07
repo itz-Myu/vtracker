@@ -8,7 +8,7 @@ def read_secret(filename):
 VTS_IP   = "127.0.0.1"
 VTS_PORT = 8001
 
-PLUGIN_NAME      = "API VTracker"
+PLUGIN_NAME      = "VTracker API"
 PLUGIN_DEVELOPER = "Myu"
 PLUGIN_TOKEN     = read_secret("token.txt")
 PLUGIN_ICON      = read_secret("icon_base64.txt")
@@ -42,10 +42,15 @@ FACE_AXIS_MAP = {
     "FaceAngleZ": "roll",
 }
 
+# --- Настройки щек ---
+CHEEK_PUFF_THRESHOLD = 0.15  # Минимальный порог срабатывания (отсекает шум и легкую мимику)
+CHEEK_PUFF_MULTIPLIER = 2.5  # Усиление сигнала (чтобы значение уверенно доходило до 1.0)
+CHEEK_PUFF_SMOOTHING = 0.3   # Коэффициент сглаживания (чем меньше, тем плавнее, но с небольшой задержкой)
+
 # --- Настройки жестов ---
-GESTURE_THRESHOLD_EXTENDED = 0.6  # порог для разогнутых пальцев (0..1)
-GESTURE_THRESHOLD_FOLDED   = 0.35  # порог для согнутых пальцев (0..1)
-GESTURE_DISTANCE_THRESHOLD = 0.08  # порог расстояния для жеста OK (в нормализованных координатах)
+GESTURE_THRESHOLD_EXTENDED = 0.6
+GESTURE_THRESHOLD_FOLDED   = 0.35
+GESTURE_DISTANCE_THRESHOLD = 0.08
 
 ## Индивидуальные пороги
 GESTURE_THUMB_EXTENDED = 0.45
